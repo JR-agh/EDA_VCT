@@ -1,0 +1,386 @@
+---
+title: "Analiza eksploracyjna danych"
+author: "Jacek Rybak"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: journal
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+player_stats <- read.csv("D:/agh/sem3/AnalizaDanych/EDA/player_stats.csv")
+```
+
+# Wprowadzenie
+
+## Dane
+
+Dane, które zostaną przeanalizowane, pochodzą ze strony [kaggle.com](https://www.kaggle.com/datasets/piyush86kumar/valorant-champions-tour-2025-paris), a konkretniej ze zbioru danych, który zawiera informacje o meczach rozegranych podczas ostatniego turnieju Valorant Champions 2025 (mistrzostw świata w Valoranta), które odbyły się w na przełomie września i października 2025 roku w Paryżu.
+
+Valorant jest to gra stworzona przez studio Riot Games i opublikowana w 2020 roku. Mierzą się w niej dwa pięcioosobowe zespoły. Najpierw jedna drużyna rozgrywa 12 rund po stronie atakującej, a druga po stronie broniącej, po czym następuje zmiana stron. Wygrywa pierwsza drużyna, która zdobędzie 13 rund (w przypadku wyniku 12:12 rozgrywane są dwurundowe dogrywki). Celem drużyny atakującej jest wyelimowanie wszystkich zawodników drużyny broniącej lub przetransportowanie spike'a do specjalnej strefy, a następnie obronienie go przed deaktywacją przez 45 sekund po aktywacji (wtedy spike wybucha). Drużyna broniąca musi wyelimować drużynę atakującą lub nie dopuścić do aktywacji spike'a przed końcem rundy (runda trwa 1:50, jeżeli nie zostanie aktywowany spike).
+
+## Wykorzystane pakiety
+
+```{r, warning = F, message = F}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggthemes)
+mytheme <- theme(
+  plot.title = element_text(size = 16, face = "bold"),
+  axis.title.x = element_text(size = 14),
+  axis.title.y = element_text(size = 14),
+  axis.text.x = element_text(size = 12),
+  axis.text.y = element_text(size = 12))
+theme_clean <- theme_clean() + mytheme
+```
+
+Biblioteki `dplyr` i `tidyr` posłużą mi do modyfikowania i porządkowania danych. Pakiet `ggplot2` będzie przydatny do wizualizacji, a `ggthemes` zawiera w sobie gotowe motywy wykresów. Wszystkie wykresy będą korzystały ze zmodyfikowanego przeze mnie theme_clean (zwiększyłem opisy osi wykresu, ponieważ domyślnie są trochę za małe).
+
+## Przygotowanie danych
+
+```{r}
+
+summary(player_stats)
+```
+
+Powyżej znajduje się podsumowanie zbioru statystyk poszczególnych graczy, którzy wystąpili na turnieju. Pierwszą rzeczą, która może się rzucić w oczy to fakt, iż wszystkie wartości, które wyrażane są w procentach zamiast posiadać wartość liczbową są zmienną o typie ```character```. Przed przystąpieniem do dalszej analizy należy sprawić, że te kolumny będą miały odpowiedni typ danych. Dodatkowo w kolumnie ```clutches``` wartości są przedstawione w formacie ```a/b```, gdzie ```a``` to liczba wygranych clutchy, a ```b``` to liczba okazji. W tym wypadku wartości z tej kolumny umieszczę w dwóch osobnych kolumnach o nazwach ```clutches_won``` i ```clutches_total```. Kolumna ```player``` oraz ```player_name``` zawierają pseudonimy graczy, więc naturalnie muszą być zmienną tekstową (do tego są identyczne, zatem jedna z nich jest zbędna). ```Agents``` jest to lista agentów, którymi grali zawodnicy, więc aktualna forma przechowywania tych danych wydaje się optymalna, natomiast ```team``` to drużyna, którą reprezentują, dlatego uważam, że do celów poniższej analizy najbardziej użyteczne będzie trzymanie tej informacji jako ```factor```. Poza powyższymi polami istnieje jeszcze ```player_id```, która jest sztuczną wartością liczbową stworzoną w celu identyfikacji każdego gracza i jest dla nas zbędna, ponieważ wystarczą nam nicki graczy. Z pomocą przy wprowadzania zmian przyjdzie biblioteka ```dplyr```, która została stworzona do przetwarzania takich danych.
+
+```{r, warning = F, message = F}
+player_stats <- player_stats %>%
+  select(-c(player_name, player_id)) %>%
+  mutate(hs_percent = as.numeric(gsub("%", "", hs_percent)) / 100,
+         kast = as.numeric(gsub("%", "", kast)) / 100,
+         cl_percent = as.numeric(gsub("%", "", cl_percent))/100,
+         team = as.factor(team)) %>%
+  separate(clutches, into = c("clutches_won", "clutches_total"), sep = "/") %>%
+  mutate(clutches_won = as.numeric(clutches_won),
+         clutches_total = as.numeric(clutches_total))
+summary(player_stats)
+```
+
+## Zmienne po przygotowaniu danych
+
+* `player` zmienna zawierająca pseudonim gracza
+* `team` zmienna kategoryczna oznaczająca zespół, do którego należy gracz
+* `agents` zmienna zawierająca listę agentów, którymi grał zawodnik
+* `agents_count` liczba (całkowita) różnych agentów, którymi został rozegrany mecz przez danego zawodnika
+* `rounds` liczba (całkowita) rozegranych rund w trakcie turnieju
+* `rating` liczba (zmiennoprzecinkowa) oznaczająca średnią wartość [Ratingu 2.0](https://www.vlr.gg/381456/vlr-rating-2-0-update) uzyskaną przez gracza we wszystkich meczach na przestrzeni turnieju
+* `acs` liczba (zmiennoprzecinkowa) reprezentująca średnią liczbę uzyskanego wyniku ACS (average combat score) uzyskanego przez gracza we wszystkich meczach na przestrzeni turnieju
+* `kd_ratio` liczba (zmiennoprzecinkowa), która oznacza stosunek zabójstw do śmierci we wszystkich meczach na przestrzeni turnieju
+* `kast` liczba (zmiennoprzecinkowa) oznaczająca odsetek rund, w których dany zawodnik zdobył zabójstwo (K - kill), asystę (A - assist), zachował broń (S - saved) lub został ztrade'owany (T - trade)
+* `adr` liczba (zmiennoprzecinkowa) oznaczająca średnią zadanych obrażeń na rundę
+* `kpr` liczba (zmiennoprzecinkowa) oznaczająca średnią liczbę zabójstw na rundę
+* `apr` liczba (zmiennoprzecinkowa) oznaczająca średnią liczbę asyst na rundę
+* `fkpr` liczba (zmiennoprzecinkowa) oznaczająca średnią liczbę pierwszych zabójstw na rundę
+* `fdpr` liczba (zmiennoprzecinkowa) oznaczająca średnią liczbę pierwszych śmierci na rundę
+* `hs_percent` liczba (zmiennoprzecinkowa) oznaczająca odsetek strzałów, które trafiły w głowę przeciwnika
+* `cl_percent` liczba (zmiennoprzecinkowa) oznaczająca odsetek clutchów, które zostały wygrane (clutch to sytuacja, w której zawodnik zostaje w rundzie sam przeciwko jednemu lub kilku przeciwnikom)
+* `clutches_won` liczba (całkowita) ugranych clutchy przez gracza na przestrzeni całego turnieju
+* `clutches_total` liczba (całkowita) clutchy, w których został gracz na przestrzeni całego turnieju
+* `k_max` liczba (całkowita) oznaczająca maksymalną liczbę zabójstw jaką udało się osiągnąć danemu zawodnikowi w jednym turnieju
+* `kills` liczba (całkowita) wszystkich zabójstw uzyskanych przez zawodnika na przestrzeni całego turnieju
+* `deaths` liczba (całkowita) wszystkich śmierci uzyskanych przez zawodnika na przestrzeni całego turnieju
+* `assist` liczba (całkowita) wszystkich asyst uzyskanych przez zawodnika na przestrzeni całego turnieju
+* `first_kills` liczba (całkowita) wszystkich pierwszych zabójstw w rundzie uzyskanych przez zawodnika na przestrzeni całego turnieju
+* `first_deaths` liczba (całkowita) wszystkich pierwszych śmierci uzyskanych przez zawodnika na przestrzeni całego turnieju
+
+# Zawodnicy
+
+Po przygotowaniu danych można przystąpić do analizy statystyk poszczególnych zawodników.
+
+## ACS
+
+Pierwszą analizowaną statystyką będzie ACS (average combat score), który jest podstawowym wskaźnikiem wykorzystywaną do opisywania osiągów graczy. Nie jest to idealny miernik jakości gry i od lat pojawiają się głosy proszące o zmianę sposobu jego obliczania, lecz zmiana ta nie nadchodzi. Na razie uznaję, że jest to "wystarczająco dobry" współczynnik, a być może ustalę w toku dalszej analizy, na ile dobrze wartość ta odzwierciedla jakość występu zawodnika.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+ggplot(player_stats, aes(x = acs)) +
+  geom_density() +
+  labs(x = "ACS",  y = "", title = "Gęstość ACS") +
+  geom_vline(xintercept = 262, linetype = "dashed", color = "red") +
+  annotate("text", x = 268, y = 0.007, label = "aspas", colour= "red", size = 3.5) +
+  geom_vline(xintercept = median(player_stats$acs), linetype = "dashed", color = "darkolivegreen4") +
+  annotate("text", x = 197, y = 0.007, label = "mediana", colour= "darkolivegreen4", size = 3.5) +
+  scale_x_continuous(breaks = c(seq(140, 260, by = 30), 190.2)) +
+  theme_clean
+```
+
+Możemy zauważyć, że wyniki graczy ułożyły się w rozkład normalny. Jest to dobry znak, ponieważ rozkład umiejętności graczy również powinien być normalny, a wskaźnik odwzorujący jakąś wartość powinien mieć taki sam rozkład jak odwzorywana wartość. Jednakże nie należy oceniać rozkładu "na oko" kiedy mamy pod ręką odpowiednie narzędzia, żeby to zbadać. Poniżej wykonam test Shapiro-Wilka przy użyciu funkcji `shapiro.wilk()` z pakietu `stats`. Liczność próby, na której przeprowadzany jest test, to 81, która jest większa od 50, czyli rekomendowanej maksymalnej liczności próby przy oryginalnym teście Shapiro-Wilka, jednakże funkcja `shapiro.wilk()` w R działa w oparciu o algorytm AS R181 (stworzony przez P. Roystona), który podwyższa sufit rekomendowanego przedziału aż do 5000 obserwacji.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+print(shapiro.test(player_stats$acs))
+```
+
+P-value wynosi w przybliżeniu 0,26, czyli znacznie więcej niż np. 0,05, zatem możemy stwierdzić, że rozkład ACS jest normalny. W takim razie możemy wyznaczyć wartości estymatorów parametrów rozkładu.
+
+```{r, message=FALSE, warning=FALSE}
+cat("średnia: ",
+    format(mean(player_stats$acs), digits = 5),
+    "\nodchylenie standardowe: ",
+    format(sd(player_stats$acs), digits = 4))
+```
+
+Pozwoliłem sobie zaznaczyć wynik gracza o nicku "aspas" na tle wykresu gęstości. Miał on najwyższą wartość ACS na tym turnieju. Na podstawie ustalonych wyżej parametrów rozkładu można określić jak bardzo unikalne są statystyki tego gracza.
+
+```{r, message=FALSE, warning=FALSE}
+cat(format(100-100*pnorm(261.6, mean = 189.75, sd = 26.63), digits = 2), "%")
+```
+Okazuje się, że szansa na pojawienie się gracza, który miałby takie same lub lepsze statystyki, wynosiła 0,35%.Przy okazji wypadałoby wspomnieć, że mediana ACS w meczach rankingowych całej populacji wynosi 215, gdy mediana ACS na tym turnieju wyniosła 190. Dlaczego jest to większy wynik od większości profesjonalnych graczy w tym turnieju skoro jest to wskaźnik, który mierzy jakość gry relatywnie do przeciwników w meczu? O tym być może dowiemy się podczas analizy agentów, którzy byli wybierani przez profesjonalnych graczy.
+
+## Agenci
+
+W grze do wyboru są agenci, czyli grywalne postacie z różnymi zestawami unikalnych umiejętności, a w zależności od ich charakteru są oni podzieleni na cztery klasy: duelista, inicjator, kontroler oraz sentinel. Ten podział jednak nie będzie przedmiotem poniższej analizy. Bardziej interesuje mnie podział na postacie, które posiadają możliwość leczenia i na pozostałe. Składnikami wzoru na ACS są: obrażenia (1 punkt obrażeń = 1 ACS), zabójstwa (70-150 ACS za pojedyncze + 50 ACS bonusowo każde kolejne zabójstwo w rundzie) oraz asysty (25 ACS pod warunkiem, że asysta nie wynika z obrażeń, lecz z użycia umiejętności). Z tego względu, jeżeli w meczu jest więcej postaci, które mogą leczyć, to jest też więcej obrażeń do zadania, a także więcej asyst do zebrania (jeżeli ktoś został wyleczony przez nas i zabije przeciwnika, to dostajemy asystę).
+
+Poniżej obliczę pickrate postaci leczących i porównam go z pickratem niektórych postaci w meczach rankingowych. Pickrate jest to miara, która ma różne definicje, zatem sprecyzuję, z której korzystam w mojej analizie. Korzystam ze wzoru $pickrate = \frac{N_{agent}}{N_{all}}$, gdzie $N_{agent}$ to ilość wystąpień danego agenta, a $N_{all}$ to ilość wystąpień agentów ogółem. Maksymalną wartością $N_{agent}$ na mecz jest 2 (1 na zespół), ponieważ agenci nie mogą powtarzać się w jednym zespole (mogą za to występować w zespole przeciwnym), natomiast $N_{all}$ jest zawsze równe 10 na mecz. Z tego wynika, że maksymalną wartością pickrate'u w tej definicji jest 20%, a minimalną 0%. Jest to definicja, którą przyjmuje tracker.gg (strona specjalizująca się w zbieraniu danych z różnych gier, w tym z Valoranta), a właśnie z tej strony biorę statystyki dotyczące populacji meczów rankingowych w celu okazjonalnego porównania z profesjonalnymi graczami.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+match_stats <- read.csv("D:/agh/sem3/AnalizaDanych/EDA/performance_data.csv")
+healerzy <- match_stats %>%
+  filter(Agent %in% c("Sage", "Skye", "Clove", "Reyna", "Phoenix")) #bez Veto, bo turniej był grany na patchu przed dodaniem Veto
+CPR <- match_stats %>%
+  filter(Agent %in% c("Clove", "Reyna", "Phoenix"))
+omeny <- match_stats %>%
+  filter(Agent %in% c("Omen"))
+df_pickrate <- data.frame(
+  typ = c(rep("Healerzy", 2), rep("CPR", 2), rep("Omen", 2)),
+  pickrate = c(35,
+               100*length(healerzy$Agent)/length(match_stats$Agent),
+               24.7,
+               length(CPR$Agent),
+               5.2,
+               (100*length(omeny$Agent)/length(match_stats$Agent))),
+  rank_tour = as.factor(rep(c("Rankingowa", "Turniejowa"), 3)))
+  
+ggplot(df_pickrate, aes(x = typ, y = pickrate, fill = factor(rank_tour))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  guides(fill = guide_legend(title = "Rodzaj gry")) +
+  labs(title = "Pickrate wybranych postaci", x = "Postać/Grupa postaci", y = "Pickrate [%]") +
+  theme_clean
+```
+
+CPR to podzbiór grupy "Healerzy" składający się Clove, Phoenixa i Reyny. W przypadku graczy zwykłych meczy rankingowych aktualnie dwie najczęściej wybierane postacie przez graczy to właśnie Reyna oraz Clove (pickrate na poziomie 10,8% oraz 10,5%). Dysproporcja w wyborze postaci leczących to prawdopodobnie jedna z istotniejszych przyczyn różnicy w medianie ACS między meczami VCT, a meczami rankingowymi. Drugim czynnikiem, który podejrzewam o bycie istotnym, jest odsetek strzałów w głowę.
+
+## HS%
+
+Dość popularną mechaniką w grach FPS jest zróżnicowanie obrażeń w zależności od tego, w którą część ciała trafia pocisk. Można to porównać do koszykówki, w której trafienie do kosza punktowane jest w różny sposób w zależności od okoliczności. W Valorancie również premiowana jest precyzja, dlatego strzały w głowę zadają od 1,7 do aż 4 razy więcej obrażeń niż strzał w ciało (mnożnik jest zależny od używanej broni). Ponieważ jednym z istotniejszych elementów gry są pojedynki strzeleckie, to osiąganie wysokiego HS% jest jak najbardziej wskazane, jednakże mówi się, iż optymalna wartość tego wskaźnika powinna mieścić się w przedziale 20%-30% (w tym przedziale mieści się około 30% populacji graczy Valoranta). Chciałem sprawdzić to poprzez porównanie zmiennej HS% do innej zmiennej, która opisywałaby jak dobrze zawodnik radzi sobie z zabijaniem przeciwników. Stwierdzam, że idealnym wyborem jest tu K/D, czyli stosunek zabójstw do śmierci. Zestawienie tych dwóch zmiennych znajduje się na poniższym wykresie wraz z dopasowaniem krzywej do wykresu punktowego metodą lokalnej regresji wielomianowej (zaznaczona kolorem <span style="color: blue;">niebieskim</span>).
+
+
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+ggplot(player_stats, aes(x = hs_percent, y = kd_ratio)) +
+  geom_point() +
+  annotate("point", x = 0.26, y = 1.66, color = "red") +
+  annotate("text", x = 0.26, y = 1.61, label = "aspas", colour= "red", size = 3.5) +
+  geom_smooth(span = 1, se = F) +
+  labs(x = "HS%", y = "K/D", title = "Odsetek strzałów w głowę, a K/D") +
+  theme_clean
+```
+
+Oczekiwałem tutaj rozkładu, który byłby podobny do wielomianu parzystego stopnia z ujemnym współczynnikiem przy najwyższej potędze. Zbyt niski odsetek strzałów w głowę oznacza, że zawodnik nie ma odpowiedniej precyzji, która pozwalałaby na wygrywanie większej ilości pojedynków strzeleckich. Zbyt wysoki odsetek sprawia, że jednak czasem próba oddania idealnego strzału sprawia, że przeciwnik w międzyczasie trafia 4 "średnie" strzały, które okazują się wystarczające do wygrania. Jednakże moje predykcje nie do końca się tutaj sprawdziły, o ile rzeczywiście niski HS% oznaczał niski stosunek K/D, a średni HS% przekładał się na wysokie K/D, to niestety wysokie HS% nie sprawiało, że K/D z powrotem spadało do poziomów niskiego HS%.
+
+## Agent pool
+
+Często powtarzaną przez trenerów radą jest sugestia, żeby ograniczyć "agent pool", czyli liczbę różnych agentów, którymi operuje gracz. W ten sposób początkujący zmniejszają zbiór czynników, na których muszą się skupiać. Natomiast, kiedy gracze opanują podstawowe mechaniki gry, mogą zacząć wykorzystywać pełen potencjał agentów dostępnych w grze. Oczywiście na VCT nie ma początkujących graczy, jednak wąski agent pool może ułatwić skupianie się na innych aspektach rozgrywki. Z drugiej strony powiększenie zbioru agentów, które znajdują się w arsenale danego gracza, może pozwolić lepiej dostosować się do poszczególnej mapy lub też zaskoczyć oponenta, któremu trudniej przygotować analizę każdego team compu (team comp - skład agentów w danej drużynie).
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+dane1 <- player_stats %>%
+  mutate(agents_count = as.factor(agents_count)) %>%
+  group_by(agents_count) %>%
+  summarise(rating = rating,
+            acs = acs)
+
+ggplot(dane1, aes(x = agents_count, y = acs)) + #mediana ACS w populacji 215
+  geom_boxplot(fill = "#EEEEEE") +
+  labs(x = "Liczba agentów",  y = "ACS", title = "ACS w zależności od agent poolu") +
+  stat_summary(fun = "mean", geom = "point", shape = 3,
+               size = 3, color = "purple") +
+  annotate("point", x = 4, y = 261.6, color = "red") +
+  annotate("text", x = 4, y = 257, label = "aspas", colour= "red", size = 3.5) +
+  annotate("point", x = 1, y = 237, color = "blue") +
+  annotate("text", x = 1, y = 232, label = "spiritZ1", colour= "blue", size = 3.5) +
+  theme_clean
+
+dane1 <- player_stats %>%
+  filter(agents_count >= 2 & agents_count <= 4)
+cat("Odsetek graczy z agent poolem o szerokości <2; 4>: ",
+    format(100*length(dane1$acs)/length(player_stats$acs), digits = 4), "%")
+```
+
+Z tego wynika, że najniższe średnie ACS mają gracze, którzy grają trzema agentami, natomiast najwyższe wartości notują gracze albo z bardzo szerokim zasobem grywanych agentów (6), albo z bardzo wąską specjalizacją (1 agent). Prawdopodobnie wynika to z tego, że agent pool o szerokości 2-4 jest normalnym zjawiskiem (mieści się tam ponad 87% graczy) i decyzja o innym podejściu musi być uzasadniona albo wybitnym opanowaniem jednego agenta, albo wybitną elastycznością zawodnika. Jeżeli powyższe warunki nie są spełnione, to trenerzy z resztą zespołu nie ryzykują nietypowym podejściem do gry, dlatego też odstające wartości `agent_count` są również odstające pod warunkiem `acs`, ponieważ tylko dla jednostek o wysokim ACS warto ryzykować innym podejściem do struktury zespołu.
+
+## Clutche
+
+Kolejną statystyką, która może mieć ciekawą zależność z ACS, jest odsetek wygranych clutchy. Przypomnę, że clutch to sytuacja, w której zawodnik w rundzie został sam przeciwko jednemu lub więcej przeciwników (1vsX $X\in \{x \in \mathbb{Z}: 1 \leq x \leq 5\}$). Jak wiemy, zabójstwa zwiększają ACS, lecz istotne jest to, że pierwsze zabójstwo przeciwnika jest warte aż 150 punktów, natomiast ostatnie jedynie 70. Z tego powodu wiele osób uważa, że taki system obliczania tego wskaźnika jest zły, ponieważ niedowartościowuje zabójstwa w clutchach, a ugranie clutcha bezpośrednio przekłada się na wygraną rundę (z definicji). Ostatecznie najważniejszą statystyką w Valorancie są właśnie wygrane mecze/rundy, a nie zabójstwa. Dlatego stwierdziłem, że sprawdzę jaka jest zależność między ACS, a ugranymi clutchami.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+player_stats_no <- player_stats %>%
+  filter(acs < (mean(acs)+1.5*IQR(acs)) & acs > (mean(acs)-1.5*IQR(acs)))
+
+ggplot(player_stats_no, aes(x = cl_percent, y = acs)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  labs(title = "Odsetek wygranych clutchy a ACS", x = "Odsetek wygranych clutchy", y = "ACS") +
+  theme_clean
+```
+
+Przeprowadzona została regresja liniowa na zbiorze z odfiltrowanymi wartościami odstającymi. Jak widać na wykresie, dopasowana została funkcja liniowa rosnąca, co wskazuje na to, że wraz ze wzrostem odsetka wygranych clutchy rośnie też ACS, co zaprzecza tezie jakoby ACS "karał" za ugrywanie clutchy.
+
+
+# Zespoły
+
+Po rozpatrzeniu poszczególnych zawodników czas pogrupować ich w drużyny. Valorant to gra zespołowa i ostatecznie najważniejsze nie są indywidualne osiągi, lecz wygrana całej ekipy. Co ciekawe, system rankingowy w Valorancie ma ukryte dwie wartości: jedna jest oparta jedynie o wygrywanie lub przegrywanie meczy (tzw. Win/Loss), a druga o indywidualne statystyki gracza (tzw. Encounter). Ostateczny ranking jest ustalany na podstawie tych dwóch wskaźników i im wyższa pozycja w rankingu gracza, tym większa waga czynnika, który bierze pod uwagę grę zespołową. Skoro w zbiorze tych danych analizuję statystyki najlepszych graczy na świecie, to dobrym pomysłem byłoby większą uwagę przyłożyć do wyników zespołów niż pojedynczych zawodników.
+
+## ACS
+
+Wiemy już, że rozkład ACS wśród zawodników jest normalny. Drużyn jest niestety zbyt mało (16), żeby rysować wykres gęstości i wyciągać z niego wnioski, zatem przyjrzymy się średniemu ACS drużyn z innej perspektywy. 
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+team_stats <- player_stats %>%
+  mutate(team = as.factor(team)) %>%
+  group_by(team) %>%
+  summarise(mean_fkpr = mean(fkpr),
+            mean_acs = mean(acs)) %>%
+  arrange(desc(mean_acs)) %>%
+  mutate(ACS = 1:16)
+
+team_stats$team <- factor(team_stats$team, levels = team_stats$team)
+
+ggplot(team_stats, aes(x = team, y = mean_acs)) +
+  labs(title = "Średnie ACS drużyn",y = "Średnie ACS", x = "Drużyna") +
+  geom_point() +
+  theme_clean +
+  theme(axis.text.x = element_text(size = 10))
+```
+
+Wartości średniego ACS w każdej drużynie wydają się dzielić na trzy poziomy oraz posiadają jedną wartość odstającą, czyli zespół BLG ze średnią, która minimalnie przekracza wynik 170.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+team_stats2 <- team_stats %>%
+  mutate(Wynik = c(5.5, 4, 1, 7.5, 14.5, 14.5, 10.5, 5.5, 10.5, 2, 3, 7.5, 10.5, 14.5, 10.5, 14.5)) %>%
+  mutate(combined_Wyniks = mapply(function(x, y) c(x, y), 
+                                  Wynik, ACS, 
+                                  SIMPLIFY = FALSE)) %>%
+  arrange(desc(mean_acs))
+
+spearman_cor <- cor(x = team_stats2$Wynik, y = team_stats2$ACS, method = "spearman")
+kendall_cor <- cor(x = team_stats2$Wynik, y = team_stats2$ACS, method = "kendall")
+cat(paste0("Korelacja rangowa Spearmana: ",
+           format(spearman_cor, digits = 2),
+           "\nKorelacja Kendalla: ",
+           format(kendall_cor, digits = 2))) #dwie cyfry po przecinku, ale akurat 0, więc nie wyświetla
+```
+
+Obie wartości korelacji nie wskazują na istnienie silnej, ani nawet umiarkowanej zależności między średnim ACS, a miejscem zajętym w turnieju.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+team_stats2 <- team_stats2 %>%
+  select(team, Wynik, ACS) %>%
+  mutate(isImprove = ifelse(Wynik > ACS, 0, 1)) %>%
+  pivot_longer(cols = c(Wynik, ACS), 
+               names_to = "measurement_type", 
+               values_to = "rank_value")
+
+ggplot(team_stats2, aes(x = measurement_type, y = rank_value, group = team)) +
+  geom_line(color = ifelse(team_stats2$isImprove == 1, "green", "red"), size = 0.8) +
+  geom_point(color = "black", size = 3) +
+  geom_text(data = team_stats2 %>% filter(measurement_type == "ACS"),
+            aes(label = team),
+            hjust = 1.5, 
+            size = 4) +
+  scale_y_reverse(breaks = 1:max(team_stats2$rank_value)) +
+  labs(x = "Uporządkowanie według", y = "Miejsce") +
+  theme_clean
+```
+
+Powyższy wykres przedstawia porównanie miejsc zespołów w rankingu średniego ACS oraz wyniku w turnieju. Kolor linii zależy od tego czy zespół zajął wyższe miejsce w turnieju czy rankingu ACS. Można zauważyć, że linii czerwonych i zielonych jest równo po osiem. Trudno też zauważyć jakieś zależności czy trendy, co potwierdza interpretację wartości korelacji rangowych obliczonych wyżej.
+
+## Agent pool
+
+Po przeanalizowaniu indywidualnych szerokości agent poola zastanawiam się jak to wygląda w przypadku drużyn. Prawdopodobnie na zbiór agentów, którzy są grani przez zawodników duży wpływ mają trenerzy i analitycy poszczególnych zespołów. Czy zatem można uznać, że któreś z podejść systemowych jest lepsze od drugiego?
+Poniżej znajduje się wykres ze średnią ilością różnych agentów, którzy byli wykorzystywani przez graczy poszczególnych zespołów.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+team_stats <- player_stats %>%
+  mutate(team = as.factor(team)) %>%
+  group_by(team) %>%
+  summarise(mean_ac = mean(agents_count)) %>%
+  arrange(desc(mean_ac)) %>%
+  mutate(AC = 1:16)
+
+team_stats$team <- factor(team_stats$team, levels = team_stats$team)
+
+ggplot(team_stats, aes(x = team, y = mean_ac)) +
+  labs(title = "Średnia szerokość agent poola zespołów",y = "Szerokość agent poola", x = "Drużyna") +
+  geom_point() +
+  theme_clean +
+  theme(axis.text.x = element_text(size = 10))
+```
+
+Wizualnie wartości są bardziej zbliżone do rozkładu jednostajnego. Jedyny "skok" jest między zespołami PRX i DRX, w przeciwieństwie do analogicznego wykresu dla ACS, gdzie było widać zarysowane różne grupy o podobnych wartościach.
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+team_stats2 <- team_stats %>%
+  mutate(Wynik = c(10.5, 10.5, 1, 5.5, 2, 7.5, 5.5, 7.5, 10.5, 14.5, 14.5, 14.5, 4, 3, 14.5, 10.5)) %>%
+  mutate(combined_Wyniks = mapply(function(x, y) c(x, y), 
+                                  Wynik, AC, 
+                                  SIMPLIFY = FALSE)) %>%
+  arrange(desc(AC))
+
+spearman_cor <- cor(x = team_stats2$Wynik, y = team_stats2$AC, method = "spearman")
+kendall_cor <- cor(x = team_stats2$Wynik, y = team_stats2$AC, method = "kendall")
+cat(paste0("Korelacja rangowa Spearmana: ",
+           format(spearman_cor, digits = 2),
+           "\nKorelacja Kendalla: ",
+           format(kendall_cor, digits = 2)))
+```
+
+Bezwględne wartości korelacji są jeszcze mniejsze niż przypadku ACS, co oznacza, że nie można uznać, iż występuje nawet umiarkowana korelacja między tymi zmiennymi.
+
+
+```{r fig.width=9, message=FALSE, warning=FALSE}
+team_stats2 <- team_stats2 %>%
+  select(team, Wynik, AC) %>%
+  mutate(isImprove = ifelse(Wynik > AC, "0", "1")) %>%
+  pivot_longer(cols = c(Wynik, AC), 
+               names_to = "measurement_type", 
+               values_to = "rank_value")
+
+ggplot(team_stats2, aes(x = measurement_type, y = rank_value, group = team)) +
+  geom_line(aes(x = measurement_type, y = rank_value, group = team, color = isImprove),
+            size = 0.8,
+            show.legend = F) +
+  geom_point(color = "black", size = 3) +
+  geom_text(data = team_stats2 %>% filter(measurement_type == "AC"),
+            aes(label = team),
+            hjust = 1.5, 
+            size = 4) +
+  scale_y_reverse(breaks = 1:max(team_stats2$rank_value)) +
+  scale_color_manual(values = c("1" = "green", "0" = "red")) +
+  labs(x = "Uporządkowanie według", y = "Miejsce") +
+  theme_clean
+```
+
+Na podstawie powyższych statystyk i wizualizacji można uznać, że różne podejścia do szerokości agent poolu graczy w zespole nie są powiązane z wynikami zespołów na turnieju. Inne decyzje podejmowane przez trenerów i analityków najwyraźniej mają większy wpływ na ostateczny wynik ekipy.
+
+# Podsumowanie
+
+## Wnioski
+
+Z powyższej analizy wynika, iż ACS jest dobrym wskaźnikiem indywidualnego występu gracza, jednak nie należy wyciągać wniosków na temat wyników drużyny na podstawie ACS graczy. Dodatkowo wielkość zbioru agentów wykorzystywanych przez graczy w drużynie nie koreluje z jej wynikami, zatem nie można oceniać jakie podejście do gry jest optymalne pod tym względem.
+
+## Przypisy
+
+```{r message=FALSE, warning=FALSE}
+citation("dplyr")
+citation("ggplot2")
+citation("tidyr")
+citation("ggthemes")
+```
+Zestaw danych zebrał: Piyush Kumar
